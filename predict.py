@@ -13,6 +13,10 @@ import pandas as pd
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from main import EnergyForecastingSystem
+from data_preprocessing import EnergyDataPreprocessor
+from anomaly_detection import EnergyAnomalyDetector
+from profile_clustering import DailyProfileClusterer
+from forecasting_model import EnergyForecaster
 
 
 def parse_query(query: str) -> dict:
