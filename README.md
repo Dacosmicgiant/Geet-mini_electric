@@ -21,7 +21,10 @@ Unlike traditional approaches that treat energy data as one continuous time seri
 - **Anomaly Detection**: Multi-method approach (IQR, Z-score, Isolation Forest, Pattern-based)
 - **Daily Profile Clustering**: Groups similar consumption patterns
 - **Advanced Feature Engineering**: 40+ temporal, lag, and pattern-based features
-- **Random Forest Forecasting**: Predicts daily consumption with high accuracy
+- **Hybrid Forecasting System**:
+  - **Random Forest** for historical dates (87.6% R²)
+  - **SARIMA** for future dates (time series forecasting)
+- **Predict ANY Date**: Historical dates OR future dates (including today!)
 - **Comprehensive Visualizations**: 6+ visualization types for pattern analysis
 - **Simple Query Interface**: Natural language prediction queries
 
@@ -81,26 +84,28 @@ This will:
 ### Option 2: Simple Prediction Interface
 
 ```bash
-# First run: Train the model
+# First run: Train the model (includes both Random Forest + SARIMA)
 python predict.py --train
 
-# Make predictions with natural language
-python predict.py "Predict tomorrow's energy usage for Household 1001"
-
-# Predict specific date
+# Predict HISTORICAL date (uses Random Forest)
 python predict.py --date 2007-12-15
 
-# Use different data file
-python predict.py --date 2007-11-20 --data-path path/to/data.txt
+# Predict TODAY'S date (uses SARIMA)
+python predict.py --date 2025-10-29
+
+# Predict any FUTURE date
+python predict.py --date 2026-01-15
+
+# Natural language query
+python predict.py "Predict tomorrow's energy usage for Household 1001"
 ```
 
-### Sample Output
+### Sample Output (Historical Date)
 
 ```
-Query: Predict tomorrow's energy usage for Household 1001.
 ======================================================================
-
 Date: 2007-12-15 (Saturday)
+Prediction Method: Random Forest
 
 Forecast: 24.5 kWh
 
@@ -112,9 +117,22 @@ Top Contributing Features:
   lag_1d: 23.456
   same_day_last_week: 24.123
   rolling_7d_mean: 22.890
+  cluster_avg_consumption: 25.100
   day_of_week: 5
-  is_weekend: 1
+======================================================================
+```
 
+### Sample Output (Future Date)
+
+```
+======================================================================
+Date: 2025-10-29 (Wednesday)
+Prediction Method: SARIMA
+
+Forecast: 23.8 kWh
+
+Top Contributing Features:
+  prediction_method: SARIMA (time series)
 ======================================================================
 ```
 
@@ -159,7 +177,38 @@ Consensus approach: Flag as anomaly if ≥2 methods agree
 
 **Target**: Total daily consumption (kWh)
 
-### 5. Visualization (`src/visualization.py`)
+### 5. Time Series Forecasting (`src/time_series_forecaster.py`)
+
+**Model**: SARIMA (Seasonal AutoRegressive Integrated Moving Average)
+
+**Purpose**: Predict future dates beyond the historical dataset
+
+**Configuration**:
+- **SARIMA Order**: (1, 1, 1) - AutoRegressive, Differencing, Moving Average
+- **Seasonal Order**: (1, 0, 1, 7) - Weekly seasonality (7 days)
+- **Auto-parameter tuning**: Grid search with AIC optimization
+
+**Use Cases**:
+- Predict today's consumption
+- Forecast next week/month/year
+- Fill gaps in historical data
+
+### 6. Hybrid Forecasting System
+
+**Decision Logic**:
+```
+IF target_date <= last_historical_date:
+    USE Random Forest (high accuracy with all features)
+ELSE:
+    USE SARIMA (time series extrapolation)
+```
+
+**Benefits**:
+- Best of both worlds: ML features + time series
+- Accurate historical predictions (87.6% R²)
+- Unlimited future forecasting capability
+
+### 7. Visualization (`src/visualization.py`)
 
 Generates 6 key visualizations:
 1. Daily consumption trend with anomalies
