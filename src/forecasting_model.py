@@ -134,15 +134,21 @@ class EnergyForecaster:
         # ============ Cluster features (if available) ============
         if profiles_clustered is not None:
             # Add cluster information
-            cluster_map = profiles_clustered['cluster'].to_dict()
+            # Convert both indices to date format for matching
+            df['date_key'] = pd.to_datetime(df.index).date
 
-            # Convert index to date for matching
-            df['date_key'] = df.index.date
-            profiles_clustered['date_key'] = profiles_clustered.index.date
+            # Handle profiles_clustered index - might already be dates or DatetimeIndex
+            if isinstance(profiles_clustered.index, pd.DatetimeIndex):
+                profiles_clustered_temp = profiles_clustered.copy()
+                profiles_clustered_temp['date_key'] = profiles_clustered_temp.index.date
+            else:
+                # Index is already dates
+                profiles_clustered_temp = profiles_clustered.copy()
+                profiles_clustered_temp['date_key'] = profiles_clustered_temp.index
 
             # Merge cluster info
             df = df.merge(
-                profiles_clustered[['date_key', 'cluster']],
+                profiles_clustered_temp[['date_key', 'cluster']],
                 on='date_key',
                 how='left'
             )
@@ -161,8 +167,6 @@ class EnergyForecaster:
                 df['yesterday_cluster'] = df['cluster'].shift(1).fillna(df['cluster'])
 
             df = df.drop('date_key', axis=1)
-            if 'date_key' in profiles_clustered.columns:
-                profiles_clustered = profiles_clustered.drop('date_key', axis=1)
 
         # ============ External features ============
         # Use voltage as proxy for external factors (temperature, etc.)
