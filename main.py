@@ -16,6 +16,7 @@ from data_preprocessing import EnergyDataPreprocessor
 from anomaly_detection import EnergyAnomalyDetector
 from profile_clustering import DailyProfileClusterer
 from forecasting_model import EnergyForecaster
+from time_series_forecaster import TimeSeriesForecaster
 from visualization import EnergyVisualizer
 
 
@@ -36,6 +37,7 @@ class EnergyForecastingSystem:
         self.detector = None
         self.clusterer = None
         self.forecaster = None
+        self.ts_forecaster = None  # SARIMA for future predictions
         self.visualizer = EnergyVisualizer()
 
         # Data containers
@@ -111,7 +113,17 @@ class EnergyForecastingSystem:
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
             self.forecaster.save_model(model_path)
 
-        print("\n[STEP 7] Feature Importance Analysis")
+        print("\n[STEP 7] Training SARIMA for Future Predictions")
+        print("-" * 70)
+        self.ts_forecaster = TimeSeriesForecaster()
+        self.ts_forecaster.fit(self.daily_clean, auto_params=False)  # Use default params for speed
+
+        # Save SARIMA model
+        if save_model:
+            sarima_path = model_path.replace('.pkl', '_sarima.pkl')
+            self.ts_forecaster.save_model(sarima_path)
+
+        print("\n[STEP 8] Feature Importance Analysis")
         print("-" * 70)
         print("\nTop 15 Most Important Features:")
         print(self.forecaster.get_top_features(15).to_string(index=False))
@@ -122,7 +134,8 @@ class EnergyForecastingSystem:
 
     def predict_day(self, target_date: str) -> dict:
         """
-        Predict energy consumption for a specific date.
+        Predict energy consumption for any date (historical or future).
+        Uses Random Forest for historical dates, SARIMA for future dates.
 
         Args:
             target_date: Date string in format 'YYYY-MM-DD'
@@ -130,43 +143,69 @@ class EnergyForecastingSystem:
         Returns:
             Dictionary with prediction and metadata
         """
-        if self.forecaster is None or self.df_features is None:
+        if self.forecaster is None:
             raise ValueError("Must run pipeline first")
 
         target_date = pd.to_datetime(target_date)
+        target_datetime = target_date
 
-        # Convert index to DatetimeIndex for consistent handling
-        df_features_index = pd.to_datetime(self.df_features.index)
-
-        # Check if date is in feature set
-        if target_date.date() not in [d.date() for d in df_features_index]:
-            raise ValueError(f"Date {target_date.date()} not in dataset")
-
-        # Find the matching datetime index
-        matching_dates = [d for d in df_features_index if d.date() == target_date.date()]
-        if not matching_dates:
-            raise ValueError(f"No matching date found for {target_date.date()}")
-
-        # Get the original index value (might be date or datetime)
-        target_idx = df_features_index.get_loc(matching_dates[0])
-        target_date = self.df_features.index[target_idx]
-
-        # Make prediction
-        prediction, features_used = self.forecaster.predict_future_day(
-            target_date, self.df_features
-        )
-
-        # Get actual value if available
-        actual = None
-        # Convert to datetime for comparison
-        target_datetime = pd.to_datetime(target_date)
+        # Get last available date in dataset
         daily_index = pd.to_datetime(self.daily_data.index)
+        last_date = daily_index.max()
 
-        # Find matching date in daily_data
-        matching_daily = [d for d in daily_index if d.date() == target_datetime.date()]
-        if matching_daily:
-            daily_idx = daily_index.get_loc(matching_daily[0])
-            actual = self.daily_data.iloc[daily_idx]['total_daily_consumption']
+        # Determine prediction method
+        is_future = target_date > last_date
+        prediction_method = 'SARIMA' if is_future else 'Random Forest'
+
+        if is_future:
+            # Use SARIMA for future predictions
+            if self.ts_forecaster is None or not self.ts_forecaster.is_fitted:
+                raise ValueError("SARIMA model not trained. Please run full pipeline first.")
+
+            prediction = self.ts_forecaster.predict_future(target_datetime)
+            features_used = {'prediction_method': 'SARIMA (time series)'}
+            actual = None
+
+        else:
+            # Use Random Forest for historical predictions
+            if self.df_features is None:
+                raise ValueError("Features not available. Please run full pipeline first.")
+
+            # Convert index to DatetimeIndex for consistent handling
+            df_features_index = pd.to_datetime(self.df_features.index)
+
+            # Check if date is in feature set
+            if target_date.date() not in [d.date() for d in df_features_index]:
+                # Date is between first and last but not in features
+                # Fall back to SARIMA if available
+                if self.ts_forecaster and self.ts_forecaster.is_fitted:
+                    print(f"Warning: Date not in features, using SARIMA fallback")
+                    prediction = self.ts_forecaster.predict_future(target_datetime)
+                    features_used = {'prediction_method': 'SARIMA (fallback)'}
+                    actual = None
+                else:
+                    raise ValueError(f"Date {target_date.date()} not in dataset")
+            else:
+                # Find the matching datetime index
+                matching_dates = [d for d in df_features_index if d.date() == target_date.date()]
+                if not matching_dates:
+                    raise ValueError(f"No matching date found for {target_date.date()}")
+
+                # Get the original index value (might be date or datetime)
+                target_idx = df_features_index.get_loc(matching_dates[0])
+                target_date_key = self.df_features.index[target_idx]
+
+                # Make prediction with Random Forest
+                prediction, features_used = self.forecaster.predict_future_day(
+                    target_date_key, self.df_features
+                )
+
+                # Get actual value if available
+                actual = None
+                matching_daily = [d for d in daily_index if d.date() == target_datetime.date()]
+                if matching_daily:
+                    daily_idx = daily_index.get_loc(matching_daily[0])
+                    actual = self.daily_data.iloc[daily_idx]['total_daily_consumption']
 
         result = {
             'date': target_datetime,
@@ -174,6 +213,7 @@ class EnergyForecastingSystem:
             'actual_consumption': round(actual, 2) if actual is not None else None,
             'error': round(abs(prediction - actual), 2) if actual is not None else None,
             'day_of_week': target_datetime.strftime('%A'),
+            'prediction_method': prediction_method,
             'top_features': {k: round(v, 3) for k, v in list(features_used.items())[:5]}
         }
 

@@ -17,6 +17,7 @@ from data_preprocessing import EnergyDataPreprocessor
 from anomaly_detection import EnergyAnomalyDetector
 from profile_clustering import DailyProfileClusterer
 from forecasting_model import EnergyForecaster
+from time_series_forecaster import TimeSeriesForecaster
 
 
 def parse_query(query: str) -> dict:
@@ -81,6 +82,7 @@ def format_prediction_output(result: dict, query: str = None):
         date_str = str(result['date'])
 
     print(f"\nDate: {date_str} ({result['day_of_week']})")
+    print(f"Prediction Method: {result.get('prediction_method', 'Random Forest')}")
     print(f"\nForecast: {result['predicted_consumption']:.2f} kWh")
 
     if result['actual_consumption']:
@@ -185,7 +187,15 @@ Examples:
             system.daily_clean, system.profiles_clustered
         )
         system.forecaster.load_model(args.model_path)
-        print("Model loaded successfully!")
+
+        # Load SARIMA model for future predictions
+        sarima_path = args.model_path.replace('.pkl', '_sarima.pkl')
+        if os.path.exists(sarima_path):
+            system.ts_forecaster = TimeSeriesForecaster()
+            system.ts_forecaster.load_model(sarima_path)
+            print("Models loaded successfully! (Random Forest + SARIMA)")
+        else:
+            print("Model loaded successfully! (Random Forest only - no SARIMA for future predictions)")
 
     # Determine target date
     target_date = None
