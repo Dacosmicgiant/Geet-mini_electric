@@ -70,7 +70,13 @@ def format_prediction_output(result: dict, query: str = None):
         print(f"Query: {query}")
         print("="*70)
 
-    print(f"\nDate: {result['date'].strftime('%Y-%m-%d')} ({result['day_of_week']})")
+    # Handle date formatting - might be datetime or date object
+    if hasattr(result['date'], 'strftime'):
+        date_str = result['date'].strftime('%Y-%m-%d')
+    else:
+        date_str = str(result['date'])
+
+    print(f"\nDate: {date_str} ({result['day_of_week']})")
     print(f"\nForecast: {result['predicted_consumption']:.2f} kWh")
 
     if result['actual_consumption']:
@@ -192,11 +198,14 @@ Examples:
         query_text = None
 
     # Handle special date keywords
+    # Convert index to datetime for consistent handling
+    daily_index = pd.to_datetime(system.daily_data.index)
+
     if target_date == 'latest':
-        target_date = system.daily_data.index[-10].strftime('%Y-%m-%d')
+        target_date = daily_index[-10].strftime('%Y-%m-%d')
     elif target_date and target_date.startswith('latest-'):
         days_back = int(target_date.split('-')[1])
-        target_date = system.daily_data.index[-(10 + days_back)].strftime('%Y-%m-%d')
+        target_date = daily_index[-(10 + days_back)].strftime('%Y-%m-%d')
 
     # Make prediction
     try:
@@ -209,9 +218,16 @@ Examples:
 
         for i in [15, 20, 25]:
             try:
-                date_str = system.daily_data.index[-i].strftime('%Y-%m-%d')
+                date_str = daily_index[-i].strftime('%Y-%m-%d')
                 result = system.predict_day(date_str)
-                print(f"\n{result['date'].date()} ({result['day_of_week']}):")
+
+                # Handle date formatting
+                if hasattr(result['date'], 'date'):
+                    date_display = result['date'].date()
+                else:
+                    date_display = result['date']
+
+                print(f"\n{date_display} ({result['day_of_week']}):")
                 print(f"  Forecast: {result['predicted_consumption']:.2f} kWh", end='')
                 if result['actual_consumption']:
                     print(f" | Actual: {result['actual_consumption']:.2f} kWh | Error: {result['error']:.2f} kWh")
@@ -225,8 +241,15 @@ Examples:
     except Exception as e:
         print(f"\nError making prediction: {e}")
         print("\nAvailable date range:")
-        print(f"  From: {system.daily_data.index.min().date()}")
-        print(f"  To: {system.daily_data.index.max().date()}")
+        # Safe date formatting
+        try:
+            min_date = pd.to_datetime(system.daily_data.index.min())
+            max_date = pd.to_datetime(system.daily_data.index.max())
+            print(f"  From: {min_date.date()}")
+            print(f"  To: {max_date.date()}")
+        except:
+            print(f"  From: {system.daily_data.index.min()}")
+            print(f"  To: {system.daily_data.index.max()}")
         sys.exit(1)
 
 

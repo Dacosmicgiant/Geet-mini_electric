@@ -288,22 +288,34 @@ def main():
     print("="*70)
 
     # Predict some specific dates
-    example_dates = [
-        system.daily_data.index[-30].strftime('%Y-%m-%d'),  # 30 days ago
-        system.daily_data.index[-15].strftime('%Y-%m-%d'),  # 15 days ago
-        system.daily_data.index[-7].strftime('%Y-%m-%d'),   # 7 days ago
-    ]
+    try:
+        # Convert index to datetime if needed and get example dates
+        daily_index = pd.to_datetime(system.daily_data.index)
+        example_dates = [
+            daily_index[-30].strftime('%Y-%m-%d'),  # 30 days ago
+            daily_index[-15].strftime('%Y-%m-%d'),  # 15 days ago
+            daily_index[-7].strftime('%Y-%m-%d'),   # 7 days ago
+        ]
 
-    for date_str in example_dates:
-        try:
-            result = system.predict_day(date_str)
-            print(f"\nDate: {result['date'].date()} ({result['day_of_week']})")
-            print(f"  Predicted: {result['predicted_consumption']:.2f} kWh")
-            if result['actual_consumption']:
-                print(f"  Actual: {result['actual_consumption']:.2f} kWh")
-                print(f"  Error: {result['error']:.2f} kWh")
-        except Exception as e:
-            print(f"\nCould not predict for {date_str}: {e}")
+        for date_str in example_dates:
+            try:
+                result = system.predict_day(date_str)
+
+                # Handle date formatting - result['date'] might be datetime or date
+                if hasattr(result['date'], 'date'):
+                    date_display = result['date'].date()
+                else:
+                    date_display = result['date']
+
+                print(f"\nDate: {date_display} ({result['day_of_week']})")
+                print(f"  Predicted: {result['predicted_consumption']:.2f} kWh")
+                if result['actual_consumption']:
+                    print(f"  Actual: {result['actual_consumption']:.2f} kWh")
+                    print(f"  Error: {result['error']:.2f} kWh")
+            except Exception as e:
+                print(f"\nCould not predict for {date_str}: {e}")
+    except Exception as e:
+        print(f"\nCould not generate example predictions: {e}")
 
     print("\n" + "="*70)
     print("Analysis complete! Check 'visualizations/' for plots.")
