@@ -278,6 +278,64 @@ class EnergyForecastingSystem:
             save_filename='06_anomaly_summary.png'
         )
 
+        # 7. Random Forest model evaluation
+        if self.predictions is not None:
+            print("7. Random Forest model evaluation...")
+            X_train, X_test, y_train, y_test = self.forecaster.prepare_train_test(
+                self.df_features, test_size=0.2
+            )
+            self.visualizer.plot_model_evaluation(
+                y_test, self.predictions,
+                model_name="Random Forest",
+                save_filename='07_rf_model_evaluation.png'
+            )
+
+        # 8. SARIMA forecast visualization
+        if self.ts_forecaster and self.ts_forecaster.is_fitted:
+            print("8. SARIMA forecast visualization...")
+            # Get historical data
+            ts = self.daily_clean['total_daily_consumption'].copy()
+            ts.index = pd.to_datetime(self.daily_clean.index)
+
+            # Generate 30-day forecast
+            forecast = self.ts_forecaster.fitted_model.forecast(steps=30)
+            forecast_dates = pd.date_range(
+                start=ts.index[-1] + pd.Timedelta(days=1),
+                periods=30,
+                freq='D'
+            )
+            forecast_series = pd.Series(forecast, index=forecast_dates)
+
+            # Get confidence intervals
+            forecast_obj = self.ts_forecaster.fitted_model.get_forecast(steps=30)
+            conf_int = forecast_obj.conf_int()
+
+            self.visualizer.plot_sarima_forecast(
+                ts,
+                forecast_series,
+                confidence_intervals=(conf_int.iloc[:, 0].values, conf_int.iloc[:, 1].values),
+                save_filename='08_sarima_forecast.png'
+            )
+
+        # 9. Model comparison
+        if self.test_metrics:
+            print("9. Model comparison...")
+            sarima_metrics = None
+            if self.ts_forecaster and self.ts_forecaster.is_fitted:
+                # Evaluate SARIMA on a test set
+                try:
+                    split_idx = int(len(self.daily_clean) * 0.8)
+                    test_daily = self.daily_clean.iloc[split_idx:]
+                    sarima_metrics = self.ts_forecaster.evaluate_on_test(test_daily)
+                except:
+                    pass
+
+            self.visualizer.plot_model_comparison(
+                self.test_metrics,
+                sarima_metrics,
+                save_filename='09_model_comparison.png'
+            )
+
         print("\nAll visualizations saved to 'visualizations/' directory")
 
     def print_summary_report(self):

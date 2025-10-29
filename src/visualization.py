@@ -377,6 +377,240 @@ class EnergyVisualizer:
 
         plt.show()
 
+    def plot_model_evaluation(self, y_true: pd.Series, y_pred: np.ndarray,
+                             model_name: str = "Model",
+                             save_filename: str = None):
+        """
+        Comprehensive model evaluation visualization.
+
+        Args:
+            y_true: Actual values
+            y_pred: Predicted values
+            model_name: Name of the model (for title)
+            save_filename: Filename to save plot
+        """
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+
+        # 1. Residual plot
+        residuals = y_true.values - y_pred
+        axes[0, 0].scatter(y_pred, residuals, alpha=0.5, s=20)
+        axes[0, 0].axhline(y=0, color='r', linestyle='--', linewidth=2)
+        axes[0, 0].set_xlabel('Predicted Values (kWh)')
+        axes[0, 0].set_ylabel('Residuals (kWh)')
+        axes[0, 0].set_title(f'{model_name} - Residual Plot', fontweight='bold')
+        axes[0, 0].grid(True, alpha=0.3)
+
+        # 2. Error distribution
+        axes[0, 1].hist(residuals, bins=50, alpha=0.7, color='steelblue', edgecolor='black')
+        axes[0, 1].axvline(x=0, color='r', linestyle='--', linewidth=2)
+        axes[0, 1].set_xlabel('Prediction Error (kWh)')
+        axes[0, 1].set_ylabel('Frequency')
+        axes[0, 1].set_title(f'{model_name} - Error Distribution', fontweight='bold')
+        axes[0, 1].grid(True, alpha=0.3, axis='y')
+
+        # Add mean and std to error distribution
+        mean_error = residuals.mean()
+        std_error = residuals.std()
+        axes[0, 1].text(0.05, 0.95, f'Mean: {mean_error:.3f}\nStd: {std_error:.3f}',
+                       transform=axes[0, 1].transAxes,
+                       verticalalignment='top',
+                       bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+        # 3. Actual vs Predicted over time
+        axes[1, 0].plot(y_true.index, y_true.values, label='Actual',
+                       color='steelblue', linewidth=1.5, alpha=0.7)
+        axes[1, 0].plot(y_true.index, y_pred, label='Predicted',
+                       color='orange', linewidth=1.5, alpha=0.7)
+        axes[1, 0].set_xlabel('Date')
+        axes[1, 0].set_ylabel('Daily Consumption (kWh)')
+        axes[1, 0].set_title(f'{model_name} - Predictions Over Time', fontweight='bold')
+        axes[1, 0].legend()
+        axes[1, 0].grid(True, alpha=0.3)
+
+        # 4. Error metrics summary
+        from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        r2 = r2_score(y_true, y_pred)
+        mape = np.mean(np.abs((y_true.values - y_pred) / y_true.values)) * 100
+
+        # Calculate error percentage by bins
+        error_pcts = np.abs((y_true.values - y_pred) / y_true.values) * 100
+        bins = [0, 5, 10, 15, 20, 100]
+        labels = ['0-5%', '5-10%', '10-15%', '15-20%', '>20%']
+        error_categories = pd.cut(error_pcts, bins=bins, labels=labels)
+        error_counts = error_categories.value_counts().sort_index()
+
+        axes[1, 1].bar(range(len(error_counts)), error_counts.values,
+                      color='steelblue', alpha=0.7)
+        axes[1, 1].set_xticks(range(len(error_counts)))
+        axes[1, 1].set_xticklabels(error_counts.index, rotation=45)
+        axes[1, 1].set_ylabel('Number of Predictions')
+        axes[1, 1].set_title(f'{model_name} - Error Distribution by %', fontweight='bold')
+        axes[1, 1].grid(True, alpha=0.3, axis='y')
+
+        # Add metrics text
+        metrics_text = f'MAE: {mae:.3f} kWh\nRMSE: {rmse:.3f} kWh\nR²: {r2:.3f}\nMAPE: {mape:.2f}%'
+        axes[1, 1].text(0.98, 0.98, metrics_text,
+                       transform=axes[1, 1].transAxes,
+                       verticalalignment='top',
+                       horizontalalignment='right',
+                       bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.5),
+                       fontsize=11)
+
+        plt.tight_layout()
+
+        if save_filename:
+            plt.savefig(f"{self.save_dir}/{save_filename}", dpi=300, bbox_inches='tight')
+            print(f"Saved: {save_filename}")
+
+        plt.show()
+
+    def plot_sarima_forecast(self, historical_data: pd.Series,
+                            forecast: pd.Series,
+                            confidence_intervals: tuple = None,
+                            save_filename: str = None):
+        """
+        Plot SARIMA forecast with confidence intervals.
+
+        Args:
+            historical_data: Historical time series
+            forecast: Forecasted values
+            confidence_intervals: Tuple of (lower, upper) confidence bounds
+            save_filename: Filename to save plot
+        """
+        fig, axes = plt.subplots(2, 1, figsize=(16, 10))
+
+        # 1. Forecast plot
+        axes[0].plot(historical_data.index, historical_data.values,
+                    label='Historical', color='steelblue', linewidth=2)
+        axes[0].plot(forecast.index, forecast.values,
+                    label='Forecast', color='orange', linewidth=2)
+
+        if confidence_intervals:
+            lower, upper = confidence_intervals
+            axes[0].fill_between(forecast.index, lower, upper,
+                                alpha=0.3, color='orange', label='95% CI')
+
+        axes[0].axvline(x=historical_data.index[-1], color='red',
+                       linestyle='--', linewidth=2, label='Forecast Start')
+        axes[0].set_xlabel('Date')
+        axes[0].set_ylabel('Daily Consumption (kWh)')
+        axes[0].set_title('SARIMA Forecast', fontweight='bold', fontsize=14)
+        axes[0].legend(loc='best')
+        axes[0].grid(True, alpha=0.3)
+
+        # 2. Forecast zoom (last 60 days of history + forecast)
+        last_60_hist = historical_data.iloc[-60:]
+        axes[1].plot(last_60_hist.index, last_60_hist.values,
+                    label='Recent History', color='steelblue', linewidth=2)
+        axes[1].plot(forecast.index, forecast.values,
+                    label='Forecast', color='orange', linewidth=2, marker='o', markersize=4)
+
+        if confidence_intervals:
+            lower, upper = confidence_intervals
+            axes[1].fill_between(forecast.index, lower, upper,
+                                alpha=0.3, color='orange')
+
+        axes[1].axvline(x=historical_data.index[-1], color='red',
+                       linestyle='--', linewidth=2, label='Forecast Start')
+        axes[1].set_xlabel('Date')
+        axes[1].set_ylabel('Daily Consumption (kWh)')
+        axes[1].set_title('SARIMA Forecast (Zoomed)', fontweight='bold', fontsize=14)
+        axes[1].legend(loc='best')
+        axes[1].grid(True, alpha=0.3)
+
+        plt.tight_layout()
+
+        if save_filename:
+            plt.savefig(f"{self.save_dir}/{save_filename}", dpi=300, bbox_inches='tight')
+            print(f"Saved: {save_filename}")
+
+        plt.show()
+
+    def plot_model_comparison(self, rf_metrics: dict, sarima_metrics: dict = None,
+                             save_filename: str = None):
+        """
+        Compare Random Forest and SARIMA model performance.
+
+        Args:
+            rf_metrics: Dictionary with Random Forest metrics
+            sarima_metrics: Dictionary with SARIMA metrics (optional)
+            save_filename: Filename to save plot
+        """
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+        # Prepare data
+        metrics_names = ['MAE\n(kWh)', 'RMSE\n(kWh)', 'MAPE\n(%)']
+        rf_values = [rf_metrics['mae'], rf_metrics['rmse'], rf_metrics['mape']]
+
+        if sarima_metrics:
+            sarima_values = [sarima_metrics['mae'], sarima_metrics['rmse'],
+                           sarima_metrics['mape']]
+
+            # 1. Side-by-side comparison
+            x = np.arange(len(metrics_names))
+            width = 0.35
+
+            axes[0].bar(x - width/2, rf_values, width, label='Random Forest',
+                       color='steelblue', alpha=0.7)
+            axes[0].bar(x + width/2, sarima_values, width, label='SARIMA',
+                       color='orange', alpha=0.7)
+
+            axes[0].set_ylabel('Error Magnitude')
+            axes[0].set_title('Model Performance Comparison', fontweight='bold')
+            axes[0].set_xticks(x)
+            axes[0].set_xticklabels(metrics_names)
+            axes[0].legend()
+            axes[0].grid(True, alpha=0.3, axis='y')
+
+            # 2. R² comparison (if available)
+            if 'r2' in rf_metrics and 'r2' in sarima_metrics:
+                models = ['Random Forest', 'SARIMA']
+                r2_values = [rf_metrics['r2'], sarima_metrics.get('r2', 0)]
+
+                axes[1].bar(models, r2_values, color=['steelblue', 'orange'], alpha=0.7)
+                axes[1].set_ylabel('R² Score')
+                axes[1].set_title('Model Accuracy (R²)', fontweight='bold')
+                axes[1].set_ylim([0, 1.0])
+                axes[1].grid(True, alpha=0.3, axis='y')
+
+                # Add value labels on bars
+                for i, v in enumerate(r2_values):
+                    axes[1].text(i, v + 0.02, f'{v:.3f}',
+                               ha='center', fontweight='bold')
+            else:
+                # Just show RF metrics breakdown
+                axes[1].bar(metrics_names, rf_values, color='steelblue', alpha=0.7)
+                axes[1].set_ylabel('Error Magnitude')
+                axes[1].set_title('Random Forest Metrics Breakdown', fontweight='bold')
+                axes[1].grid(True, alpha=0.3, axis='y')
+        else:
+            # Only Random Forest available
+            axes[0].bar(metrics_names, rf_values, color='steelblue', alpha=0.7)
+            axes[0].set_ylabel('Error Magnitude')
+            axes[0].set_title('Random Forest Performance', fontweight='bold')
+            axes[0].grid(True, alpha=0.3, axis='y')
+
+            # R² if available
+            if 'r2' in rf_metrics:
+                axes[1].bar(['R² Score'], [rf_metrics['r2']], color='steelblue', alpha=0.7)
+                axes[1].set_ylim([0, 1.0])
+                axes[1].set_title('Random Forest Accuracy', fontweight='bold')
+                axes[1].grid(True, alpha=0.3, axis='y')
+                axes[1].text(0, rf_metrics['r2'] + 0.02, f"{rf_metrics['r2']:.3f}",
+                           ha='center', fontweight='bold')
+            else:
+                axes[1].axis('off')
+
+        plt.tight_layout()
+
+        if save_filename:
+            plt.savefig(f"{self.save_dir}/{save_filename}", dpi=300, bbox_inches='tight')
+            print(f"Saved: {save_filename}")
+
+        plt.show()
+
 
 if __name__ == "__main__":
     print("Visualization module loaded successfully.")

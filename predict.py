@@ -162,30 +162,77 @@ Examples:
         print("\nTraining model (this may take a few minutes)...")
         system.run_full_pipeline(save_model=True, model_path=args.model_path)
         print("\nModel trained successfully!")
+
+        # Save preprocessed data for faster loading
+        print("\nSaving preprocessed data for faster future predictions...")
+        cache_path = args.model_path.replace('.pkl', '_cache.pkl')
+        import joblib
+        joblib.dump({
+            'daily_data': system.daily_data,
+            'daily_clean': system.daily_clean,
+            'daily_profiles': system.daily_profiles,
+            'profiles_clustered': system.profiles_clustered,
+            'df_features': system.df_features
+        }, cache_path)
+        print(f"Cache saved to {cache_path}")
+
     else:
         print("\nLoading existing model...")
-        # Load preprocessed data
-        system.preprocessor = EnergyDataPreprocessor(args.data_path)
-        system.hourly_data, system.daily_data, system.daily_profiles = \
-            system.preprocessor.process_pipeline()
 
-        system.detector = EnergyAnomalyDetector(contamination=0.05)
-        system.daily_data, _ = system.detector.detect_all_anomalies(
-            system.daily_data, system.daily_profiles, consensus_threshold=2
-        )
-        system.daily_clean = system.detector.get_clean_data(
-            system.daily_data, remove_anomalies=True
-        )
+        # Check if we can use cached preprocessed data
+        cache_path = args.model_path.replace('.pkl', '_cache.pkl')
+        use_cache = os.path.exists(cache_path)
 
-        system.clusterer = DailyProfileClusterer()
-        system.profiles_clustered = system.clusterer.cluster_profiles(
-            system.daily_profiles, n_clusters=5
-        )
+        if use_cache:
+            print("Loading preprocessed data from cache (fast mode)...")
+            import joblib
+            cache_data = joblib.load(cache_path)
+            system.daily_data = cache_data['daily_data']
+            system.daily_clean = cache_data['daily_clean']
+            system.daily_profiles = cache_data['daily_profiles']
+            system.profiles_clustered = cache_data['profiles_clustered']
+            system.df_features = cache_data['df_features']
+            print("Preprocessed data loaded!")
 
+        else:
+            print("No cache found, running full preprocessing...")
+            print("(This will take a few minutes, but results will be cached for next time)")
+            # Load preprocessed data
+            system.preprocessor = EnergyDataPreprocessor(args.data_path)
+            system.hourly_data, system.daily_data, system.daily_profiles = \
+                system.preprocessor.process_pipeline()
+
+            system.detector = EnergyAnomalyDetector(contamination=0.05)
+            system.daily_data, _ = system.detector.detect_all_anomalies(
+                system.daily_data, system.daily_profiles, consensus_threshold=2
+            )
+            system.daily_clean = system.detector.get_clean_data(
+                system.daily_data, remove_anomalies=True
+            )
+
+            system.clusterer = DailyProfileClusterer()
+            system.profiles_clustered = system.clusterer.cluster_profiles(
+                system.daily_profiles, n_clusters=5
+            )
+
+            system.forecaster = EnergyForecaster(model_type='random_forest')
+            system.df_features = system.forecaster.create_features(
+                system.daily_clean, system.profiles_clustered
+            )
+
+            # Save cache for next time
+            import joblib
+            joblib.dump({
+                'daily_data': system.daily_data,
+                'daily_clean': system.daily_clean,
+                'daily_profiles': system.daily_profiles,
+                'profiles_clustered': system.profiles_clustered,
+                'df_features': system.df_features
+            }, cache_path)
+            print(f"Cache saved to {cache_path}")
+
+        # Load RF model
         system.forecaster = EnergyForecaster(model_type='random_forest')
-        system.df_features = system.forecaster.create_features(
-            system.daily_clean, system.profiles_clustered
-        )
         system.forecaster.load_model(args.model_path)
 
         # Load SARIMA model for future predictions
