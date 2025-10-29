@@ -135,16 +135,21 @@ class EnergyForecastingSystem:
 
         target_date = pd.to_datetime(target_date)
 
+        # Convert index to DatetimeIndex for consistent handling
+        df_features_index = pd.to_datetime(self.df_features.index)
+
         # Check if date is in feature set
-        if target_date.date() not in [d.date() for d in self.df_features.index]:
+        if target_date.date() not in [d.date() for d in df_features_index]:
             raise ValueError(f"Date {target_date.date()} not in dataset")
 
         # Find the matching datetime index
-        matching_dates = [d for d in self.df_features.index if d.date() == target_date.date()]
+        matching_dates = [d for d in df_features_index if d.date() == target_date.date()]
         if not matching_dates:
             raise ValueError(f"No matching date found for {target_date.date()}")
 
-        target_date = matching_dates[0]
+        # Get the original index value (might be date or datetime)
+        target_idx = df_features_index.get_loc(matching_dates[0])
+        target_date = self.df_features.index[target_idx]
 
         # Make prediction
         prediction, features_used = self.forecaster.predict_future_day(
@@ -153,15 +158,22 @@ class EnergyForecastingSystem:
 
         # Get actual value if available
         actual = None
-        if target_date in self.daily_data.index:
-            actual = self.daily_data.loc[target_date, 'total_daily_consumption']
+        # Convert to datetime for comparison
+        target_datetime = pd.to_datetime(target_date)
+        daily_index = pd.to_datetime(self.daily_data.index)
+
+        # Find matching date in daily_data
+        matching_daily = [d for d in daily_index if d.date() == target_datetime.date()]
+        if matching_daily:
+            daily_idx = daily_index.get_loc(matching_daily[0])
+            actual = self.daily_data.iloc[daily_idx]['total_daily_consumption']
 
         result = {
-            'date': target_date,
+            'date': target_datetime,
             'predicted_consumption': round(prediction, 2),
-            'actual_consumption': round(actual, 2) if actual else None,
-            'error': round(abs(prediction - actual), 2) if actual else None,
-            'day_of_week': target_date.strftime('%A'),
+            'actual_consumption': round(actual, 2) if actual is not None else None,
+            'error': round(abs(prediction - actual), 2) if actual is not None else None,
+            'day_of_week': target_datetime.strftime('%A'),
             'top_features': {k: round(v, 3) for k, v in list(features_used.items())[:5]}
         }
 
