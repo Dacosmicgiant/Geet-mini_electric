@@ -176,15 +176,7 @@ class EnergyForecastingSystem:
 
             # Check if date is in feature set
             if target_date.date() not in [d.date() for d in df_features_index]:
-                # Date is between first and last but not in features
-                # Fall back to SARIMA if available
-                if self.ts_forecaster and self.ts_forecaster.is_fitted:
-                    print(f"Warning: Date not in features, using SARIMA fallback")
-                    prediction = self.ts_forecaster.predict_future(target_datetime)
-                    features_used = {'prediction_method': 'SARIMA (fallback)'}
-                    actual = None
-                else:
-                    raise ValueError(f"Date {target_date.date()} not in dataset")
+                raise ValueError(f"Date {target_date.date()} not in dataset features. Available range: {df_features_index.min().date()} to {df_features_index.max().date()}")
             else:
                 # Find the matching datetime index
                 matching_dates = [d for d in df_features_index if d.date() == target_date.date()]
@@ -207,6 +199,14 @@ class EnergyForecastingSystem:
                     daily_idx = daily_index.get_loc(matching_daily[0])
                     actual = self.daily_data.iloc[daily_idx]['total_daily_consumption']
 
+        # Format features_used for display (handle non-numeric values)
+        top_features = {}
+        for k, v in list(features_used.items())[:5]:
+            if isinstance(v, (int, float)):
+                top_features[k] = round(v, 3)
+            else:
+                top_features[k] = v
+
         result = {
             'date': target_datetime,
             'predicted_consumption': round(prediction, 2),
@@ -214,7 +214,7 @@ class EnergyForecastingSystem:
             'error': round(abs(prediction - actual), 2) if actual is not None else None,
             'day_of_week': target_datetime.strftime('%A'),
             'prediction_method': prediction_method,
-            'top_features': {k: round(v, 3) for k, v in list(features_used.items())[:5]}
+            'top_features': top_features
         }
 
         return result
@@ -341,33 +341,66 @@ def main():
 
     # Predict some specific dates
     try:
-        # Convert index to datetime if needed and get example dates
-        daily_index = pd.to_datetime(system.daily_data.index)
-        example_dates = [
-            daily_index[-30].strftime('%Y-%m-%d'),  # 30 days ago
-            daily_index[-15].strftime('%Y-%m-%d'),  # 15 days ago
-            daily_index[-7].strftime('%Y-%m-%d'),   # 7 days ago
+        # Get dates from features (which are cleaned and have lag features)
+        features_index = pd.to_datetime(system.df_features.index)
+
+        # Historical predictions using Random Forest
+        print("\nHistorical Predictions (Random Forest):")
+        print("-" * 70)
+
+        historical_dates = [
+            features_index[-30].strftime('%Y-%m-%d'),
+            features_index[-15].strftime('%Y-%m-%d'),
+            features_index[-5].strftime('%Y-%m-%d'),
         ]
 
-        for date_str in example_dates:
+        for date_str in historical_dates:
             try:
                 result = system.predict_day(date_str)
 
-                # Handle date formatting - result['date'] might be datetime or date
                 if hasattr(result['date'], 'date'):
                     date_display = result['date'].date()
                 else:
                     date_display = result['date']
 
-                print(f"\nDate: {date_display} ({result['day_of_week']})")
-                print(f"  Predicted: {result['predicted_consumption']:.2f} kWh")
+                print(f"\n{date_display} ({result['day_of_week']}) - {result['prediction_method']}")
+                print(f"  Predicted: {result['predicted_consumption']:.2f} kWh", end='')
                 if result['actual_consumption']:
-                    print(f"  Actual: {result['actual_consumption']:.2f} kWh")
-                    print(f"  Error: {result['error']:.2f} kWh")
+                    error_pct = (result['error'] / result['actual_consumption']) * 100
+                    print(f" | Actual: {result['actual_consumption']:.2f} kWh | Error: {error_pct:.1f}%")
+                else:
+                    print()
             except Exception as e:
-                print(f"\nCould not predict for {date_str}: {e}")
+                print(f"\nError for {date_str}: {e}")
+
+        # Future predictions using SARIMA
+        if system.ts_forecaster and system.ts_forecaster.is_fitted:
+            print("\n\nFuture Predictions (SARIMA):")
+            print("-" * 70)
+
+            last_date = features_index.max()
+            future_dates = [
+                (last_date + pd.Timedelta(days=7)).strftime('%Y-%m-%d'),
+                (last_date + pd.Timedelta(days=30)).strftime('%Y-%m-%d'),
+                (last_date + pd.Timedelta(days=365)).strftime('%Y-%m-%d'),
+            ]
+
+            for date_str in future_dates:
+                try:
+                    result = system.predict_day(date_str)
+
+                    if hasattr(result['date'], 'date'):
+                        date_display = result['date'].date()
+                    else:
+                        date_display = result['date']
+
+                    print(f"\n{date_display} ({result['day_of_week']}) - {result['prediction_method']}")
+                    print(f"  Predicted: {result['predicted_consumption']:.2f} kWh")
+                except Exception as e:
+                    print(f"\nError for {date_str}: {e}")
+
     except Exception as e:
-        print(f"\nCould not generate example predictions: {e}")
+        print(f"\nError generating example predictions: {e}")
 
     print("\n" + "="*70)
     print("Analysis complete! Check 'visualizations/' for plots.")
